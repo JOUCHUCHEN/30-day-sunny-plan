@@ -26,6 +26,7 @@
             overflow: hidden; 
             -webkit-tap-highlight-color: transparent;
             transition: background 3s ease; 
+            touch-action: pan-y; /* 允許垂直滾動，阻止瀏覽器預設的水平翻頁 */
         }
 
         body.finale-mode {
@@ -117,7 +118,6 @@
             max-width: 290px;
         }
         
-        /* 太陽印記容器：數字恆常顯示於底層 */
         .sun-orb {
             aspect-ratio: 1;
             width: 100%;
@@ -135,7 +135,6 @@
             z-index: 1;
         }
         
-        /* 球體特效層：高於數字 (z-index 10) */
         .sun-orb::after {
             content: '';
             position: absolute;
@@ -149,7 +148,6 @@
             pointer-events: none;
         }
 
-        /* 已填滿狀態 */
         .sun-orb.filled::after {
             opacity: 1;
             transform: scale(1);
@@ -161,7 +159,6 @@
             border-color: transparent;
         }
 
-        /* 每日打卡浮現：正式版 0.3s 延遲，3.0s 柔和浮現 */
         .sun-orb.newly-lit::after {
             animation: sun-ball-emerge-softer 3.0s cubic-bezier(0.25, 1, 0.5, 1) 0.3s forwards;
         }
@@ -172,7 +169,6 @@
             100% { opacity: 1; transform: scale(1); -webkit-filter: brightness(1); filter: brightness(1); }
         }
 
-        /* 能量波浪：強化 iPhone 可見度 */
         .sun-orb.wave-active {
             z-index: 15;
             animation: wave-ethereal-glow-enhanced 1.4s cubic-bezier(0.4, 0, 0.2, 1);
@@ -241,8 +237,12 @@
             transform: translateX(-50%);
             display: flex; gap: 12px; z-index: 50;
         }
-        .dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, 0.08); transition: 0.4s; }
-        .dot.active { background: var(--sky-blue); width: 22px; border-radius: 4px; }
+        /* 修改導覽點樣式，增加可點擊範圍 */
+        .dot { 
+            width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.15); 
+            transition: 0.4s; cursor: pointer; padding: 4px; background-clip: content-box;
+        }
+        .dot.active { background: var(--sky-blue); width: 26px; border-radius: 6px; background-clip: border-box; }
 
         #custom-modal {
             position: fixed; inset: 0; z-index: 9999;
@@ -264,8 +264,9 @@
     <canvas id="game-canvas"></canvas>
 
     <div class="nav-dots">
-        <div id="dot-1" class="dot active"></div>
-        <div id="dot-2" class="dot"></div>
+        <!-- 增加 onclick 事件 -->
+        <div id="dot-1" class="dot active" onclick="slidePage(0)"></div>
+        <div id="dot-2" class="dot" onclick="slidePage(1)"></div>
     </div>
 
     <div id="custom-modal">
@@ -283,7 +284,6 @@
         <!-- ================= PAGE 1 ================= -->
         <section class="page px-6 pt-[45px] pb-24 flex flex-col items-center justify-start">
             <header class="shrink-0 z-[60] relative mb-6">
-                <!-- 正式發布版：移除日期按鈕的預覽觸發事件 -->
                 <div class="px-6 py-2 rounded-full bg-white/5 flex items-center justify-center border border-white/5">
                     <p id="today-date" class="text-[14px] text-sky-200 font-medium tracking-widest opacity-80"></p>
                 </div>
@@ -373,6 +373,11 @@
         let isWaveSequence = false; 
         let animationFrameId = null; let newlyLitIndex = -1; 
         
+        // 滑動感應變數
+        let touchStartX = 0;
+        let touchEndX = 0;
+        let currentPage = 0;
+
         const ICON_SUN = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.78" y2="4.22"/></svg>`;
         const pool = [
             { t: "深呼吸", d: "吸氣 4 秒，再花 6 秒吐出" }, { t: "視線遠離", d: "盯著最遠的點看 20 秒" }, { t: "溫熱掌心", d: "搓熱雙手，覆蓋在眼睛上" },
@@ -394,7 +399,31 @@
         function initCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; const sphereRect = document.getElementById('sphere').getBoundingClientRect(); targetX = sphereRect.left + sphereRect.width / 2; targetY = sphereRect.top + sphereRect.height / 2; }
         function createAbsorbParticles() { dots = Array.from({ length: 80 }, () => { let startX = Math.random() > 0.5 ? (Math.random() > 0.5 ? -20 : canvas.width + 20) : Math.random() * canvas.width; let startY = startX < 0 || startX > canvas.width ? Math.random() * canvas.height : (Math.random() > 0.5 ? -20 : canvas.height + 20); return { x: startX, y: startY, s: Math.random() * 2.5 + 1.2, o: 0, speed: Math.random() * 0.05 + 0.03, curve: (Math.random() - 0.5) * 2 }; }); }
         function drawAbsorbEffect() { if(isFinale) return; ctx.clearRect(0, 0, canvas.width, canvas.height); let activeParticles = 0; dots.forEach(d => { const dx = targetX - d.x; const dy = targetY - d.y; const dist = Math.sqrt(dx * dx + dy * dy); if (dist > 5) { d.x += dx * d.speed + Math.sin(dist * 0.05) * d.curve; d.y += dy * d.speed + Math.cos(dist * 0.05) * d.curve; d.o = Math.min(d.o + 0.05, 1); ctx.beginPath(); ctx.arc(d.x, d.y, d.s, 0, Math.PI*2); ctx.shadowBlur = 8; ctx.shadowColor = `rgba(251, 191, 36, ${d.o})`; ctx.fillStyle = `rgba(251, 191, 36, ${d.o})`; ctx.fill(); activeParticles++; } }); if (isAbsorbing && activeParticles > 0) animationFrameId = requestAnimationFrame(drawAbsorbEffect); else if (!isAbsorbing) ctx.clearRect(0, 0, canvas.width, canvas.height); }
-        function slidePage(idx) { document.getElementById('view-container').style.transform = `translateX(-${idx * 100}vw)`; document.getElementById('dot-1').classList.toggle('active', idx === 0); document.getElementById('dot-2').classList.toggle('active', idx === 1); if(idx === 1 && !document.body.classList.contains('finale-mode')) renderSkyGrid(false); }
+        
+        // 核心切換頁面功能
+        function slidePage(idx) { 
+            if (isAbsorbing || isFinale) return; // 動畫期間禁止手動滑動
+            currentPage = idx;
+            document.getElementById('view-container').style.transform = `translateX(-${idx * 100}vw)`; 
+            document.getElementById('dot-1').classList.toggle('active', idx === 0); 
+            document.getElementById('dot-2').classList.toggle('active', idx === 1); 
+            if(idx === 1 && !document.body.classList.contains('finale-mode')) renderSkyGrid(false); 
+        }
+
+        // 滑動偵測邏輯
+        function handleGesture() {
+            if (isAbsorbing || isFinale) return;
+            const threshold = 50; // 滑動門檻（像素）
+            if (touchEndX < touchStartX - threshold) {
+                // 向左滑 -> 去 Page 2
+                if (currentPage === 0) slidePage(1);
+            }
+            if (touchEndX > touchStartX + threshold) {
+                // 向右滑 -> 回 Page 1
+                if (currentPage === 1) slidePage(0);
+            }
+        }
+
         function getToday() { const d = new Date(); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
         function formatDate() { const date = new Date(); const month = date.getMonth() + 1; const day = date.getDate(); const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六']; return `${month}月${day}日 ${weekdays[date.getDay()]}`; }
         
@@ -494,7 +523,6 @@
                         isWaveSequence = false; 
                         renderSkyGrid(true); 
                         if (state.history.length >= TOTAL_DAYS) {
-                            // 當累積到第 30 天時觸發圓滿特效
                             setTimeout(() => {
                                 finalizeStability(); 
                                 isWaveSequence = true; 
@@ -528,8 +556,22 @@
             }, 400); 
         }
         
-        window.onload = () => { initCanvas(); initApp(); }; window.addEventListener('resize', initCanvas);
+        window.onload = () => { 
+            initCanvas(); 
+            initApp(); 
+
+            // 註冊滑動事件偵測
+            document.body.addEventListener('touchstart', (e) => {
+                touchStartX = e.changedTouches[0].screenX;
+            }, {passive: true});
+
+            document.body.addEventListener('touchend', (e) => {
+                touchEndX = e.changedTouches[0].screenX;
+                handleGesture();
+            }, {passive: true});
+        }; 
+        
+        window.addEventListener('resize', initCanvas);
     </script>
 </body>
-
 </html>
