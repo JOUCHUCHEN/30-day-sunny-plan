@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>30天晴紀錄</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+        
+        :root {
+            --bg-color: #0f172a; 
+            --card-bg: rgba(30, 41, 59, 0.45); 
+            --sunny: #fbbf24; 
+            --sunny-glow: rgba(251, 191, 36, 0.4);
+            --sky-blue: #38bdf8;
+            --finale-bg: #fdfaf3; 
+        }
+
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: var(--bg-color);
+            color: #f8fafc;
+            margin: 0;
+            height: 100dvh;
+            overflow: hidden; 
+            -webkit-tap-highlight-color: transparent;
+            transition: background 3s ease; 
+        }
+
+        body.finale-mode {
+            background: var(--finale-bg);
+            color: #451a03; 
+        }
+
+        #game-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 2s ease; 
+        }
+
+        #view-container {
+            display: flex;
+            width: 200vw;
+            height: 100dvh;
+            transition: transform 0.6s cubic-bezier(0.65, 0, 0.35, 1);
+        }
+
+        .page {
+            width: 100vw;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            z-index: 10;
+        }
+
+        .glass {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.12); 
+            border-radius: 24px;
+        }
+
+        .core-sphere {
+            animation: breathe 6s infinite ease-in-out;
+            transition: transform 2.5s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 2.5s ease;
+            z-index: 30;
+        }
+        
+        .core-sphere.absorbing {
+            transform: scale(1.35) !important;
+            box-shadow: 0 0 100px var(--sunny-glow), inset 0 0 50px rgba(251, 191, 36, 0.6);
+            border-color: rgba(251, 191, 36, 0.4);
+            background: rgba(251, 191, 36, 0.1);
+        }
+
+        .core-sphere.done {
+            animation: none;
+            transform: scale(1.05);
+            box-shadow: 0 0 40px rgba(251, 191, 36, 0.15);
+            border-color: rgba(251, 191, 36, 0.15);
+        }
+
+        @keyframes breathe {
+            0%, 100% { transform: scale(1) translateY(0); }
+            50% { transform: scale(1.03) translateY(-3px); }
+        }
+
+        .fade-element { transition: opacity 0.4s ease, transform 0.4s ease; }
+        .fade-element.hidden-state { opacity: 0; transform: scale(0.95); pointer-events: none; }
+
+        .task-card { 
+            transition: all 0.3s ease; 
+            cursor: pointer;
+            border: 1px solid rgba(125, 211, 252, 0.15); 
+        }
+        .task-card:active { transform: scale(0.97); background: rgba(255, 255, 255, 0.08); }
+
+        .btn-checkin {
+            background: linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(245, 158, 11, 0.25));
+            border: 1px solid rgba(251, 191, 36, 0.25);
+            box-shadow: 0 0 20px rgba(251, 191, 36, 0.1);
+            transition: all 0.4s ease;
+            color: #fef3c7;
+        }
+
+        .sky-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr); 
+            gap: 12px; 
+            width: 100%;
+            max-width: 290px;
+        }
+        
+        /* 太陽印記容器：數字恆常顯示於底層 */
+        .sun-orb {
+            aspect-ratio: 1;
+            width: 100%;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.015);
+            border: 1px solid rgba(255, 255, 255, 0.04); 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 300; 
+            color: rgba(255, 255, 255, 0.15); 
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+        }
+        
+        /* 球體特效層：高於數字 (z-index 10) */
+        .sun-orb::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #fef08a 0%, #f59e0b 80%);
+            opacity: 0;
+            transform: scale(0.7);
+            z-index: 10;
+            transition: opacity 0.6s ease, transform 0.6s ease;
+            pointer-events: none;
+        }
+
+        /* 已填滿狀態 */
+        .sun-orb.filled::after {
+            opacity: 1;
+            transform: scale(1);
+            box-shadow: 0 0 16px rgba(245, 158, 11, 0.2), inset -2px -2px 6px rgba(0,0,0,0.1);
+        }
+        
+        .sun-orb.filled {
+            color: transparent;
+            border-color: transparent;
+        }
+
+        /* 每日打卡浮現：正式版 0.3s 延遲，3.0s 柔和浮現 */
+        .sun-orb.newly-lit::after {
+            animation: sun-ball-emerge-softer 3.0s cubic-bezier(0.25, 1, 0.5, 1) 0.3s forwards;
+        }
+
+        @keyframes sun-ball-emerge-softer {
+            0% { opacity: 0; transform: scale(0.6); -webkit-filter: brightness(1.15); filter: brightness(1.15); }
+            45% { opacity: 1; transform: scale(1.05); -webkit-filter: brightness(1.08); filter: brightness(1.08); }
+            100% { opacity: 1; transform: scale(1); -webkit-filter: brightness(1); filter: brightness(1); }
+        }
+
+        /* 能量波浪：強化 iPhone 可見度 */
+        .sun-orb.wave-active {
+            z-index: 15;
+            animation: wave-ethereal-glow-enhanced 1.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @keyframes wave-ethereal-glow-enhanced {
+            0% { transform: scale(1); -webkit-filter: brightness(1); filter: brightness(1); }
+            50% { transform: scale(1.08); -webkit-filter: brightness(1.15); filter: brightness(1.15); box-shadow: 0 0 25px rgba(251, 191, 36, 0.4); }
+            100% { transform: scale(1); -webkit-filter: brightness(1); filter: brightness(1); }
+        }
+
+        #finale-sun-container {
+            position: absolute;
+            top: calc(35% - 6px); 
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            width: 320px; height: 320px;
+            opacity: 0; z-index: 40;
+            transition: all 3.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            pointer-events: none;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #finale-sun-container.bloom { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+
+        .sun-rays-organic {
+            position: absolute;
+            width: 150%; height: 150%;
+            animation: spin-rays 100s linear infinite;
+            opacity: 0.4;
+        }
+
+        .sun-core-premium {
+            position: absolute;
+            width: 140px; height: 140px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 35%, #fff 0%, #fef08a 30%, #f59e0b 75%, #d97706 100%);
+            box-shadow: 
+                0 0 70px rgba(245, 158, 11, 0.8), 
+                0 0 140px rgba(251, 191, 36, 0.3), 
+                inset -6px -6px 22px rgba(0,0,0,0.1),
+                inset 6px 6px 22px rgba(255,255,255,0.4);
+            animation: pulse-sun-premium 4.5s ease-in-out infinite;
+        }
+
+        @keyframes spin-rays { 100% { transform: rotate(360deg); } }
+        @keyframes pulse-sun-premium {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        #finale-message {
+            position: absolute;
+            top: calc(60% - 6px); 
+            left: 50%;
+            transform: translate(-50%, 20px);
+            width: 90%; text-align: center;
+            opacity: 0; z-index: 50;
+            transition: all 2.5s ease 1.5s; 
+            pointer-events: none;
+        }
+        #finale-message.show { opacity: 1; transform: translate(-50%, 0); }
+
+        .nav-dots {
+            position: fixed;
+            bottom: 30px; left: 50%;
+            transform: translateX(-50%);
+            display: flex; gap: 12px; z-index: 50;
+        }
+        .dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, 0.08); transition: 0.4s; }
+        .dot.active { background: var(--sky-blue); width: 22px; border-radius: 4px; }
+
+        #custom-modal {
+            position: fixed; inset: 0; z-index: 9999;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            display: flex; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: auto; transition: opacity 0.3s ease;
+            visibility: hidden;
+        }
+        #custom-modal.show { opacity: 1; visibility: visible; }
+
+        .grid-stack { display: grid; width: 100%; }
+        .grid-stack > * { grid-column: 1 / 2; grid-row: 1 / 2; }
+    </style>
+</head>
+<body class="select-none overflow-hidden">
+
+    <canvas id="game-canvas"></canvas>
+
+    <div class="nav-dots">
+        <div id="dot-1" class="dot active"></div>
+        <div id="dot-2" class="dot"></div>
+    </div>
+
+    <div id="custom-modal">
+        <div class="glass p-8 w-[300px] text-center shadow-2xl border-white/5">
+            <h3 id="modal-title" class="text-xl font-bold text-amber-100 mb-2 tracking-widest">提示</h3>
+            <p id="modal-desc" class="text-[14px] text-slate-300 mb-8 leading-relaxed"></p>
+            <div class="flex gap-4">
+                <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 text-sm font-medium transition-colors border border-white/5">取消</button>
+                <button id="modal-confirm" class="flex-1 py-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-sm font-medium border border-amber-500/20 transition-colors">確定</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-container">
+        <!-- ================= PAGE 1 ================= -->
+        <section class="page px-6 pt-[45px] pb-24 flex flex-col items-center justify-start">
+            <header class="shrink-0 z-[60] relative mb-6">
+                <!-- 正式發布版：移除日期按鈕的預覽觸發事件 -->
+                <div class="px-6 py-2 rounded-full bg-white/5 flex items-center justify-center border border-white/5">
+                    <p id="today-date" class="text-[14px] text-sky-200 font-medium tracking-widest opacity-80"></p>
+                </div>
+            </header>
+
+            <div id="sphere-container" class="relative flex items-center justify-center shrink-0 z-20 h-[100px] w-full mb-8">
+                <div id="sphere" class="w-[85px] h-[85px] rounded-full glass flex items-center justify-center core-sphere">
+                    <div id="sphere-glow" class="absolute inset-0 rounded-full blur-2xl opacity-30 bg-sky-400 transition-all duration-1000"></div>
+                    <div id="core-icon" class="flex items-center justify-center transition-opacity duration-1000 w-11 h-11 text-sky-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="w-full max-sm:max-w-xs flex-1 relative grid-stack">
+                <div id="list-view" class="fade-element flex flex-col justify-start gap-4">
+                    <div id="daily-tasks" class="flex flex-col gap-4 shrink-0"></div>
+                    <div class="flex items-center gap-3 px-8 py-1 opacity-20 shrink-0">
+                        <div class="h-[0.5px] flex-1 bg-slate-400"></div>
+                        <span class="text-[10px] text-slate-300 uppercase tracking-widest font-bold">OR</span>
+                        <div class="h-[0.5px] flex-1 bg-slate-400"></div>
+                    </div>
+                    <div id="special-task-card" class="task-card glass px-6 py-6 border-sky-400/20 bg-gradient-to-r from-sky-400/5 to-transparent flex items-center gap-5 rounded-[24px]">
+                        <div class="w-10 h-10 shrink-0 opacity-70 text-sky-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                        </div>
+                        <div>
+                            <h3 class="text-[17px] font-bold text-sky-100 tracking-wide">今天只想躲在雲裡</h3>
+                            <p class="text-[12px] text-slate-400 mt-1.5 leading-relaxed">允許自己暫時不發光。</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="confirm-view" class="fade-element hidden-state flex flex-col justify-start gap-5">
+                    <div class="text-center px-6 glass py-12 border-sky-400/20 rounded-[28px] shrink-0">
+                        <div class="w-16 h-16 mx-auto mb-6 text-amber-300 drop-shadow-[0_0_15px_rgba(251,191,36,0.4)]">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.78" y2="4.22"/></svg>
+                        </div>
+                        <h3 id="confirm-title" class="text-[20px] font-bold text-amber-100 mb-3 tracking-wide"></h3>
+                        <p id="confirm-desc" class="text-[14px] text-slate-400 leading-relaxed px-2"></p>
+                    </div>
+                    <button id="btn-checkin" onclick="startAbsorption()" class="btn-checkin w-full py-[20px] rounded-[22px] text-[16px] font-bold tracking-widest shrink-0">撥開烏雲，儲存晴天</button>
+                    <button onclick="cancelSelection()" class="text-[13px] text-slate-400 hover:text-slate-200 py-3 tracking-widest">重新選擇</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= PAGE 2 ================= -->
+        <section class="page flex flex-col items-center justify-center relative bg-slate-900/30 px-6">
+            <header class="text-center shrink-0 z-20 mb-8 w-full" id="sky-header">
+                <h2 class="text-lg font-light tracking-widest text-slate-300 uppercase">30 Days of Sunshine</h2>
+                <div class="flex items-baseline justify-center gap-2 mt-2">
+                    <span id="sky-days" class="text-[52px] font-light text-amber-400 font-mono leading-none">0</span>
+                    <span class="text-sm text-slate-500 font-mono">/ 30</span>
+                </div>
+                <p class="text-[12px] text-slate-500 mt-2 tracking-widest">不用連續，慢慢累積</p>
+            </header>
+            <div class="w-full flex items-center justify-center z-20 pb-8" id="sky-grid-container">
+                <div id="sky-grid" class="sky-grid"></div>
+            </div>
+            <div id="finale-sun-container">
+                <div class="sun-rays-organic">
+                    <svg viewBox="0 0 240 240" width="100%" height="100%">
+                        <defs>
+                            <linearGradient id="rayGrad" x1="0" y1="0" x2="1" y2="0">
+                                <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.9"/>
+                                <stop offset="100%" stop-color="#fbbf24" stop-opacity="0"/>
+                            </linearGradient>
+                        </defs>
+                        <g transform="translate(120, 120)" id="dynamic-rays"></g>
+                    </svg>
+                </div>
+                <div class="sun-core-premium"></div>
+            </div>
+            <div id="finale-message">
+                <p class="text-[20px] mb-4 font-bold tracking-widest text-amber-900">30天的陽光已集成</p>
+                <p class="text-[15px] opacity-90 leading-loose text-amber-800 font-medium">一點一點，對自己好一點<br>總有放晴天：）</p>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'SUNSHINE_JOURNEY_STABLE_V29';
+        const TOTAL_DAYS = 30; 
+        let state = JSON.parse(localStorage.getItem(STORAGE_KEY)) || { history: [] };
+        let isAbsorbing = false; let isFinale = false; 
+        let isWaveSequence = false; 
+        let animationFrameId = null; let newlyLitIndex = -1; 
+        
+        const ICON_SUN = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.78" y2="4.22"/></svg>`;
+        const pool = [
+            { t: "深呼吸", d: "吸氣 4 秒，再花 6 秒吐出" }, { t: "視線遠離", d: "盯著最遠的點看 20 秒" }, { t: "溫熱掌心", d: "搓熱雙手，覆蓋在眼睛上" },
+            { t: "腳踏實地", d: "感受雙腳踩在地上的重量" }, { t: "肌肉釋壓", d: "握拳 5 秒後完全鬆開" }, { t: "溫水流經", d: "喝口溫水，感受水流過喉嚨的溫度" },
+            { t: "聽覺漫遊", d: "閉上眼，找出 3 個微小的聲音" }, { t: "頸部放鬆", d: "極其緩慢地，轉動脖子一圈" }, { t: "色彩點名", d: "慢慢找出 3 個藍色的物品" },
+            { t: "肩膀重置", d: "肩膀提至耳旁 3 秒，徹底垂下" }, { t: "微小微笑", d: "不需要理由，嘴角上揚 5 秒" }, { t: "掌心按壓", d: "用大拇指按壓另一手掌心 5 秒" },
+            { t: "頭皮漫步", d: "用指腹輕輕抓揉頭皮 10 秒" }, { t: "雙手交疊", d: "雙手交疊放在胸口，感受心跳" }, { t: "指尖對齊", d: "雙手合十，感受指尖互推的力量" }, { t: "手腕輕轉", d: "慢速轉動手腕內外各三圈" }
+        ];
+
+        function showModal(title, desc, confirmAction) {
+            document.getElementById('modal-title').innerText = title; document.getElementById('modal-desc').innerText = desc;
+            const confirmBtn = document.getElementById('modal-confirm'); const newConfirmBtn = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn); newConfirmBtn.onclick = () => { closeModal(); if(confirmAction) confirmAction(); };
+            document.getElementById('custom-modal').classList.add('show');
+        }
+        function closeModal() { document.getElementById('custom-modal').classList.remove('show'); }
+
+        const canvas = document.getElementById('game-canvas'); const ctx = canvas.getContext('2d'); let dots = [], targetX, targetY;
+        function initCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; const sphereRect = document.getElementById('sphere').getBoundingClientRect(); targetX = sphereRect.left + sphereRect.width / 2; targetY = sphereRect.top + sphereRect.height / 2; }
+        function createAbsorbParticles() { dots = Array.from({ length: 80 }, () => { let startX = Math.random() > 0.5 ? (Math.random() > 0.5 ? -20 : canvas.width + 20) : Math.random() * canvas.width; let startY = startX < 0 || startX > canvas.width ? Math.random() * canvas.height : (Math.random() > 0.5 ? -20 : canvas.height + 20); return { x: startX, y: startY, s: Math.random() * 2.5 + 1.2, o: 0, speed: Math.random() * 0.05 + 0.03, curve: (Math.random() - 0.5) * 2 }; }); }
+        function drawAbsorbEffect() { if(isFinale) return; ctx.clearRect(0, 0, canvas.width, canvas.height); let activeParticles = 0; dots.forEach(d => { const dx = targetX - d.x; const dy = targetY - d.y; const dist = Math.sqrt(dx * dx + dy * dy); if (dist > 5) { d.x += dx * d.speed + Math.sin(dist * 0.05) * d.curve; d.y += dy * d.speed + Math.cos(dist * 0.05) * d.curve; d.o = Math.min(d.o + 0.05, 1); ctx.beginPath(); ctx.arc(d.x, d.y, d.s, 0, Math.PI*2); ctx.shadowBlur = 8; ctx.shadowColor = `rgba(251, 191, 36, ${d.o})`; ctx.fillStyle = `rgba(251, 191, 36, ${d.o})`; ctx.fill(); activeParticles++; } }); if (isAbsorbing && activeParticles > 0) animationFrameId = requestAnimationFrame(drawAbsorbEffect); else if (!isAbsorbing) ctx.clearRect(0, 0, canvas.width, canvas.height); }
+        function slidePage(idx) { document.getElementById('view-container').style.transform = `translateX(-${idx * 100}vw)`; document.getElementById('dot-1').classList.toggle('active', idx === 0); document.getElementById('dot-2').classList.toggle('active', idx === 1); if(idx === 1 && !document.body.classList.contains('finale-mode')) renderSkyGrid(false); }
+        function getToday() { const d = new Date(); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
+        function formatDate() { const date = new Date(); const month = date.getMonth() + 1; const day = date.getDate(); const weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六']; return `${month}月${day}日 ${weekdays[date.getDay()]}`; }
+        
+        function initApp() { 
+            const today = getToday(); 
+            document.getElementById('today-date').innerText = formatDate(); 
+            const coreIcon = document.getElementById('core-icon'); 
+            const sphereGlow = document.getElementById('sphere-glow'); 
+            const sphere = document.getElementById('sphere'); 
+            
+            if (state.history.length >= TOTAL_DAYS) { triggerFinale(); return; } 
+            
+            if (state.history.includes(today)) { 
+                document.getElementById('list-view').classList.add('hidden-state'); 
+                document.getElementById('confirm-view').classList.add('hidden-state'); 
+                coreIcon.innerHTML = `<div class="text-amber-300 drop-shadow-[0_0_10px_rgba(251,191,36,0.3)]">${ICON_SUN}</div>`; 
+                sphereGlow.classList.replace('bg-sky-400', 'bg-amber-400'); sphereGlow.style.opacity = "0.7"; sphere.classList.add('done'); 
+            } else { 
+                renderTasks(); 
+                document.getElementById('list-view').classList.remove('hidden-state'); 
+                document.getElementById('confirm-view').classList.add('hidden-state'); 
+                coreIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>`; 
+                sphereGlow.classList.replace('bg-amber-400', 'bg-sky-400'); sphereGlow.style.opacity = "0.3"; sphere.classList.remove('done'); 
+            } 
+            renderSkyGrid(false); 
+            initArtisticRays(); 
+            document.getElementById('special-task-card').onclick = () => selectTask('今天只想躲在雲裡', '允許自己暫時不發光。'); 
+        }
+
+        function renderTasks() { const container = document.getElementById('daily-tasks'); const daily = pool.sort(() => 0.5 - Math.random()).slice(0, 2); container.innerHTML = daily.map(item => `<div onclick="selectTask('${item.t}', '${item.d}')" class="task-card glass px-6 py-5 flex justify-between items-center shrink-0 rounded-[22px]"><div><h3 class="text-[16px] font-bold text-sky-100 tracking-wide">${item.t}</h3><p class="text-[12px] text-slate-400 mt-1">${item.d}</p></div><div class="w-6 h-6 opacity-20 text-sky-100 ml-2 shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></div></div>`).join(''); }
+        function selectTask(title, desc) { document.getElementById('confirm-title').innerText = title; document.getElementById('confirm-desc').innerText = desc; document.getElementById('list-view').classList.add('hidden-state'); document.getElementById('confirm-view').classList.remove('hidden-state'); }
+        function cancelSelection() { document.getElementById('confirm-view').classList.add('hidden-state'); document.getElementById('list-view').classList.remove('hidden-state'); }
+        
+        function renderSkyGrid(withNewEffect) { 
+            if(isWaveSequence && document.getElementById('sky-grid').innerHTML !== '') return;
+
+            const count = state.history.length; 
+            document.getElementById('sky-days').innerText = Math.min(count, TOTAL_DAYS); 
+            const grid = document.getElementById('sky-grid'); 
+            let html = ''; 
+            for(let i=0; i<TOTAL_DAYS; i++) { 
+                let classes = 'sun-orb'; 
+                if(i < count) { 
+                    if(i === newlyLitIndex) {
+                        if(withNewEffect) classes += ' newly-lit';
+                    } else {
+                        classes += ' filled';
+                    }
+                } 
+                html += `<div class="${classes}">${i+1}</div>`; 
+            } 
+            grid.innerHTML = html; 
+        }
+
+        function finalizeStability() {
+            const lastOrb = document.querySelector('.sun-orb.newly-lit');
+            if (lastOrb) {
+                lastOrb.classList.remove('newly-lit');
+                lastOrb.classList.add('filled');
+            }
+        }
+
+        function playWaveEffect() {
+            const orbs = document.querySelectorAll('.sun-orb');
+            const totalCols = 5;
+            orbs.forEach((orb, index) => {
+                const row = Math.floor(index / totalCols);
+                const col = index % totalCols;
+                const distance = (4 - col) + row; 
+                const delay = distance * 180; 
+                setTimeout(() => {
+                    orb.classList.add('wave-active');
+                    setTimeout(() => orb.classList.remove('wave-active'), 1400);
+                }, delay);
+            });
+        }
+
+        function startAbsorption() {
+            isAbsorbing = true; document.getElementById('confirm-view').classList.add('hidden-state');
+            document.getElementById('sphere').classList.add('absorbing'); 
+            document.getElementById('core-icon').innerHTML = `<div class="text-amber-200/80">${ICON_SUN}</div>`;
+            document.getElementById('game-canvas').style.opacity = '1'; createAbsorbParticles(); drawAbsorbEffect();
+            
+            setTimeout(() => {
+                isAbsorbing = false; document.getElementById('game-canvas').style.opacity = '0'; 
+                const today = getToday(); 
+                if(!state.history.includes(today)) { 
+                    state.history.push(today); 
+                    newlyLitIndex = state.history.length - 1; 
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); 
+                }
+                document.getElementById('sphere').classList.remove('absorbing'); initApp(); 
+                
+                setTimeout(() => {
+                    slidePage(1); 
+                    setTimeout(() => {
+                        isWaveSequence = false; 
+                        renderSkyGrid(true); 
+                        if (state.history.length >= TOTAL_DAYS) {
+                            // 當累積到第 30 天時觸發圓滿特效
+                            setTimeout(() => {
+                                finalizeStability(); 
+                                isWaveSequence = true; 
+                                playWaveEffect();
+                                const waveDuration = (9 * 180) + 1400;
+                                setTimeout(() => { 
+                                    newlyLitIndex = -1;
+                                    setTimeout(() => triggerFinale(), 1000); 
+                                }, waveDuration);
+                            }, 2000); 
+                        } else {
+                            setTimeout(() => { newlyLitIndex = -1; }, 4000);
+                        }
+                    }, 700); 
+                }, 100); 
+                
+            }, 2000);
+        }
+
+        function initArtisticRays() { const rayContainer = document.getElementById('dynamic-rays'); let raysHtml = ''; for(let i=0; i<32; i++){ const length = 100 + Math.random() * 80; const width = 0.5 + Math.random() * 1.5; const angle = i * (360 / 32); raysHtml += `<path d="M0,0 L${length},0" transform="rotate(${angle})" stroke="url(#rayGrad)" stroke-width="${width}" stroke-linecap="round" />`; } rayContainer.innerHTML = raysHtml; }
+        
+        function triggerFinale() { 
+            isFinale = true;
+            document.body.classList.add('finale-mode'); 
+            document.getElementById('sky-header').style.opacity = '0'; 
+            document.getElementById('sky-grid-container').style.opacity = '0'; 
+            document.getElementById('today-date').classList.replace('text-sky-200', 'text-amber-800'); 
+            setTimeout(() => { 
+                document.getElementById('finale-sun-container').classList.add('bloom'); 
+                document.getElementById('finale-message').classList.add('show'); 
+            }, 400); 
+        }
+        
+        window.onload = () => { initCanvas(); initApp(); }; window.addEventListener('resize', initCanvas);
+    </script>
+</body>
+</html>
