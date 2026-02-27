@@ -26,7 +26,8 @@
             overflow: hidden; 
             -webkit-tap-highlight-color: transparent;
             transition: background 3s ease; 
-            touch-action: pan-y; /* 允許垂直滾動，阻止瀏覽器預設的水平翻頁 */
+            touch-action: pan-y;
+            cursor: pointer; /* 確保 iOS 點擊偵測 */
         }
 
         body.finale-mode {
@@ -109,6 +110,7 @@
             transition: all 0.4s ease;
             color: #fef3c7;
         }
+        .btn-checkin:active { transform: scale(0.98); brightness: 1.1; }
 
         .sky-grid {
             display: grid;
@@ -131,7 +133,6 @@
             font-weight: 300; 
             color: rgba(255, 255, 255, 0.15); 
             position: relative;
-            overflow: hidden;
             z-index: 1;
         }
         
@@ -235,14 +236,20 @@
             position: fixed;
             bottom: 30px; left: 50%;
             transform: translateX(-50%);
-            display: flex; gap: 12px; z-index: 50;
+            display: flex; gap: 4px; z-index: 50;
         }
-        /* 修改導覽點樣式，增加可點擊範圍 */
+        .dot-wrapper {
+            padding: 12px;
+            cursor: pointer;
+        }
         .dot { 
-            width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.15); 
-            transition: 0.4s; cursor: pointer; padding: 4px; background-clip: content-box;
+            width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.2); 
+            transition: 0.4s;
         }
-        .dot.active { background: var(--sky-blue); width: 26px; border-radius: 6px; background-clip: border-box; }
+        .dot.active { background: var(--sky-blue); width: 26px; border-radius: 6px; }
+        
+        body.finale-mode .dot { background: rgba(0, 0, 0, 0.1); }
+        body.finale-mode .dot.active { background: #451a03; }
 
         #custom-modal {
             position: fixed; inset: 0; z-index: 9999;
@@ -264,9 +271,8 @@
     <canvas id="game-canvas"></canvas>
 
     <div class="nav-dots">
-        <!-- 增加 onclick 事件 -->
-        <div id="dot-1" class="dot active" onclick="slidePage(0)"></div>
-        <div id="dot-2" class="dot" onclick="slidePage(1)"></div>
+        <div class="dot-wrapper" onclick="slidePage(0)"><div id="dot-1" class="dot active"></div></div>
+        <div class="dot-wrapper" onclick="slidePage(1)"><div id="dot-2" class="dot"></div></div>
     </div>
 
     <div id="custom-modal">
@@ -284,6 +290,7 @@
         <!-- ================= PAGE 1 ================= -->
         <section class="page px-6 pt-[45px] pb-24 flex flex-col items-center justify-start">
             <header class="shrink-0 z-[60] relative mb-6">
+                <!-- 正式發布版：移除日期按鈕的預覽功能，改回單純顯示 -->
                 <div class="px-6 py-2 rounded-full bg-white/5 flex items-center justify-center border border-white/5">
                     <p id="today-date" class="text-[14px] text-sky-200 font-medium tracking-widest opacity-80"></p>
                 </div>
@@ -373,8 +380,10 @@
         let isWaveSequence = false; 
         let animationFrameId = null; let newlyLitIndex = -1; 
         
-        // 滑動感應變數
+        // 滑動偵測變數
         let touchStartX = 0;
+        let touchStartY = 0;
+        let touchStartTime = 0;
         let touchEndX = 0;
         let currentPage = 0;
 
@@ -400,9 +409,8 @@
         function createAbsorbParticles() { dots = Array.from({ length: 80 }, () => { let startX = Math.random() > 0.5 ? (Math.random() > 0.5 ? -20 : canvas.width + 20) : Math.random() * canvas.width; let startY = startX < 0 || startX > canvas.width ? Math.random() * canvas.height : (Math.random() > 0.5 ? -20 : canvas.height + 20); return { x: startX, y: startY, s: Math.random() * 2.5 + 1.2, o: 0, speed: Math.random() * 0.05 + 0.03, curve: (Math.random() - 0.5) * 2 }; }); }
         function drawAbsorbEffect() { if(isFinale) return; ctx.clearRect(0, 0, canvas.width, canvas.height); let activeParticles = 0; dots.forEach(d => { const dx = targetX - d.x; const dy = targetY - d.y; const dist = Math.sqrt(dx * dx + dy * dy); if (dist > 5) { d.x += dx * d.speed + Math.sin(dist * 0.05) * d.curve; d.y += dy * d.speed + Math.cos(dist * 0.05) * d.curve; d.o = Math.min(d.o + 0.05, 1); ctx.beginPath(); ctx.arc(d.x, d.y, d.s, 0, Math.PI*2); ctx.shadowBlur = 8; ctx.shadowColor = `rgba(251, 191, 36, ${d.o})`; ctx.fillStyle = `rgba(251, 191, 36, ${d.o})`; ctx.fill(); activeParticles++; } }); if (isAbsorbing && activeParticles > 0) animationFrameId = requestAnimationFrame(drawAbsorbEffect); else if (!isAbsorbing) ctx.clearRect(0, 0, canvas.width, canvas.height); }
         
-        // 核心切換頁面功能
         function slidePage(idx) { 
-            if (isAbsorbing || isFinale) return; // 動畫期間禁止手動滑動
+            if (isAbsorbing) return; 
             currentPage = idx;
             document.getElementById('view-container').style.transform = `translateX(-${idx * 100}vw)`; 
             document.getElementById('dot-1').classList.toggle('active', idx === 0); 
@@ -410,18 +418,13 @@
             if(idx === 1 && !document.body.classList.contains('finale-mode')) renderSkyGrid(false); 
         }
 
-        // 滑動偵測邏輯
         function handleGesture() {
-            if (isAbsorbing || isFinale) return;
-            const threshold = 50; // 滑動門檻（像素）
-            if (touchEndX < touchStartX - threshold) {
-                // 向左滑 -> 去 Page 2
-                if (currentPage === 0) slidePage(1);
-            }
-            if (touchEndX > touchStartX + threshold) {
-                // 向右滑 -> 回 Page 1
-                if (currentPage === 1) slidePage(0);
-            }
+            if (isAbsorbing) return;
+            const threshold = 50;
+            const duration = Date.now() - touchStartTime;
+            if (duration < 100) return;
+            if (touchEndX < touchStartX - threshold) { if (currentPage === 0) slidePage(1); }
+            if (touchEndX > touchStartX + threshold) { if (currentPage === 1) slidePage(0); }
         }
 
         function getToday() { const d = new Date(); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
@@ -459,7 +462,6 @@
         
         function renderSkyGrid(withNewEffect) { 
             if(isWaveSequence && document.getElementById('sky-grid').innerHTML !== '') return;
-
             const count = state.history.length; 
             document.getElementById('sky-days').innerText = Math.min(count, TOTAL_DAYS); 
             const grid = document.getElementById('sky-grid'); 
@@ -467,11 +469,8 @@
             for(let i=0; i<TOTAL_DAYS; i++) { 
                 let classes = 'sun-orb'; 
                 if(i < count) { 
-                    if(i === newlyLitIndex) {
-                        if(withNewEffect) classes += ' newly-lit';
-                    } else {
-                        classes += ' filled';
-                    }
+                    if(i === newlyLitIndex) { if(withNewEffect) classes += ' newly-lit'; } 
+                    else { classes += ' filled'; }
                 } 
                 html += `<div class="${classes}">${i+1}</div>`; 
             } 
@@ -480,10 +479,7 @@
 
         function finalizeStability() {
             const lastOrb = document.querySelector('.sun-orb.newly-lit');
-            if (lastOrb) {
-                lastOrb.classList.remove('newly-lit');
-                lastOrb.classList.add('filled');
-            }
+            if (lastOrb) { lastOrb.classList.remove('newly-lit'); lastOrb.classList.add('filled'); }
         }
 
         function playWaveEffect() {
@@ -523,6 +519,7 @@
                         isWaveSequence = false; 
                         renderSkyGrid(true); 
                         if (state.history.length >= TOTAL_DAYS) {
+                            // 停留 2 秒後開始圓滿流程
                             setTimeout(() => {
                                 finalizeStability(); 
                                 isWaveSequence = true; 
@@ -559,18 +556,16 @@
         window.onload = () => { 
             initCanvas(); 
             initApp(); 
-
-            // 註冊滑動事件偵測
-            document.body.addEventListener('touchstart', (e) => {
-                touchStartX = e.changedTouches[0].screenX;
+            document.body.addEventListener('touchstart', (e) => { 
+                touchStartX = e.changedTouches[0].screenX; 
+                touchStartY = e.changedTouches[0].screenY;
+                touchStartTime = Date.now();
             }, {passive: true});
-
-            document.body.addEventListener('touchend', (e) => {
-                touchEndX = e.changedTouches[0].screenX;
-                handleGesture();
+            document.body.addEventListener('touchend', (e) => { 
+                touchEndX = e.changedTouches[0].screenX; 
+                handleGesture(); 
             }, {passive: true});
         }; 
-        
         window.addEventListener('resize', initCanvas);
     </script>
 </body>
